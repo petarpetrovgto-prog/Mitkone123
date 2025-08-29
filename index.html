@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Range Trainer vT5</title>
+<title>Range Trainer vT6</title>
 <style>
   :root{
     --bg:#0b0f14; --border:#223047; --text:#e7ecf3;
@@ -35,13 +35,17 @@
     position:relative;border:2px solid rgba(0,0,0,.18);border-radius:13px;
     padding:16px 10px;font-size:16px;font-weight:1000;letter-spacing:.3px;
     color:#000; box-shadow:0 4px 14px rgba(0,0,0,.25);
-    transform:translateY(0); transition:transform .06s ease, filter .06s ease;
+    transform:translateY(0); transition:transform .06s ease, filter .06s ease, box-shadow .06s ease;
   }
   .actBtn:active{transform:translateY(1px); filter:brightness(.96)}
-  .tag{position:absolute;right:8px;top:6px;font-size:11px;opacity:.7}
+  .actBtn.ok{box-shadow:0 0 0 3px rgba(31,157,85,.55)}
+  .actBtn.err{box-shadow:0 0 0 3px rgba(214,69,69,.55)}
+  .tag{position:absolute;right:8px;top:6px;font-size:11px;opacity:.7;color:#000}
 
   /* keypad (за PUSH) */
-  .disp{margin:4px 0 8px;border:1px solid var(--border);background:#0b1220;border-radius:10px;padding:10px;font-weight:900;text-align:center}
+  .disp{margin:4px 0 8px;border:2px solid var(--border);background:#0b1220;border-radius:10px;padding:10px;font-weight:900;text-align:center}
+  .disp.ok{border-color:var(--ok); box-shadow:0 0 0 3px rgba(31,157,85,.45)}
+  .disp.err{border-color:var(--err); box-shadow:0 0 0 3px rgba(214,69,69,.45)}
   .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
   .key{border:1px solid var(--border);background:#111a2b;border-radius:12px;padding:16px 0;font-weight:900;font-size:20px}
   .key.wide{grid-column:span 2}
@@ -110,12 +114,12 @@
   <div class="card">
     <h3>Настройки</h3>
 
-    <div class="mini">Позиции за тренировка:</div>
+    <div class="mini">Позиции за тренировка (избери конкретни):</div>
     <div id="posFilters" class="row"></div>
 
     <div class="sep"></div>
 
-    <div class="mini">Стак диапазони:</div>
+    <div class="mini">Стак диапазони (избери конкретни):</div>
     <div id="stkFilters" class="row"></div>
 
     <div class="sep"></div>
@@ -182,13 +186,14 @@
   const STKS=["0–4","4–7","7–10","10–13","13+"];
 
   // DB
-  let DB=JSON.parse(localStorage.getItem("qt_trainer_v5")||"{}");
-  const save=()=>localStorage.setItem("qt_trainer_v5",JSON.stringify(DB));
+  let DB=JSON.parse(localStorage.getItem("qt_trainer_v6")||"{}");
+  const save=()=>localStorage.setItem("qt_trainer_v6",JSON.stringify(DB));
   const k=(p,r)=>p+"||"+r, get=(p,r)=>DB[k(p,r)]?.raw||"", set=(p,r,raw)=>{DB[k(p,r)]={raw};save();};
 
   // Състояние
   let curQ=null, count=0, right=0, streak=0;
   let numBuf=""; // за push
+  let lastPressedBtn=null; // за оцветяване OK/ERR
 
   // Филтри UI
   function buildFilters(){
@@ -206,21 +211,25 @@
     });
   }
   buildFilters();
-  const getFilters=()=>({
-    pos: Array.from(document.querySelectorAll('#posFilters input:checked')).map(x=>x.dataset.pos).concat().filter(Boolean) || POS_LIST.slice(),
-    stk: Array.from(document.querySelectorAll('#stkFilters input:checked')).map(x=>x.dataset.stk).concat().filter(Boolean) || STKS.slice()
-  });
+  function getFilters(){
+    const posSel = Array.from(document.querySelectorAll('#posFilters input:checked')).map(x=>x.dataset.pos);
+    const stkSel = Array.from(document.querySelectorAll('#stkFilters input:checked')).map(x=>x.dataset.stk);
+    return {
+      pos: posSel.length? posSel : POS_LIST.slice(),
+      stk: stkSel.length? stkSel : STKS.slice()
+    };
+  }
 
   // Генерация
   function askNew(){
     const sel=getFilters();
-    const pos = (sel.pos.length? sel.pos : POS_LIST)[Math.floor(Math.random()* (sel.pos.length||POS_LIST.length))];
-    const stk = (sel.stk.length? sel.stk : STKS)[Math.floor(Math.random()* (sel.stk.length||STKS.length))];
+    const pos = sel.pos[Math.floor(Math.random()*sel.pos.length)];
+    const stk = sel.stk[Math.floor(Math.random()*sel.stk.length)];
     const R=["A","K","Q","J","T","9","8","7","6","5","4","3","2"];
     const r1=R[Math.floor(Math.random()*R.length)], r2=R[Math.floor(Math.random()*R.length)];
     const hand = r1===r2? r1+r2 : r1+r2+(Math.random()<0.5?"s":"o");
     curQ={pos,stk,hand};
-    numBuf="";
+    numBuf=""; lastPressedBtn=null;
     document.getElementById("qHand").textContent=hand;
     document.getElementById("qStack").textContent="Стак: "+stk;
     document.getElementById("qPos").textContent="Позиция: "+pos;
@@ -253,7 +262,7 @@
         b.textContent=act;
         const t=document.createElement("span"); t.className="tag"; t.textContent=act.includes("AI")?"AI":"";
         b.appendChild(t);
-        b.onclick=()=>checkAnswer(false, act);
+        b.onclick=()=>{ lastPressedBtn=b; checkAnswer(false, act); };
         g.appendChild(b);
       });
       a.appendChild(g);
@@ -290,6 +299,9 @@
     if(res.disp==="—"){
       fb.textContent="Няма данни за тази комбинация."; fb.className="feedback";
       cRow.style.display="flex"; cVal.textContent="—"; cVal.style.background="#2a2f3c"; cVal.style.color="#fff";
+      // визуално зануляване
+      if(lastPressedBtn){ lastPressedBtn.classList.remove("ok","err"); }
+      const d=document.getElementById("numDisp"); if(d){ d.classList.remove("ok","err"); }
       return;
     }
 
@@ -299,8 +311,14 @@
       if(res.isNum){
         const ans=Number(numBuf), tgt=Number(res.disp);
         ok = Number.isFinite(ans) && Math.abs(ans-tgt)<=0.1;
+        const d=document.getElementById("numDisp");
+        if(d){ d.classList.toggle("ok",ok); d.classList.toggle("err",!ok); }
       }else{
         ok = chosenAct!=null && chosenAct===res.disp;
+        if(lastPressedBtn){
+          lastPressedBtn.classList.toggle("ok",ok);
+          lastPressedBtn.classList.toggle("err",!ok);
+        }
       }
       if(ok){ right++; streak++; fb.textContent="ВЯРНО!"; fb.className="feedback ok"; }
       else  { streak=0; fb.textContent="ГРЕШНО"; fb.className="feedback err"; }
@@ -351,7 +369,7 @@
   document.getElementById("btnNext").onclick=askNew;
   document.getElementById("btnCheck").onclick=()=>checkAnswer(false);
 
-  // Стартово състояние (ръчно натисни „Старт / Рестарт“)
+  // Стартово състояние – първо натисни „Старт / Рестарт“
 })();
 </script>
 </body>
